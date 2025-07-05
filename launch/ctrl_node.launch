@@ -1,0 +1,3 @@
+<launch>
+    <node pkg="santy_4px4_pkg" type="ctrl_node" name="ctrl_node"/>
+</launch>

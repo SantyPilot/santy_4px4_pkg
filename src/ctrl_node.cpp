@@ -33,7 +33,7 @@ int main(int argc, char **argv)
     ros::Rate rate(20.0);
 
     // wait for FCU connection
-    while(ros::ok() && !current_state.connected){
+    while (ros::ok() && !current_state.connected) {
         ros::spinOnce();
         rate.sleep();
     }

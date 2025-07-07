@@ -28,7 +28,9 @@ include_directories(
 )
 
 ## Declare a C++ library
-add_executable(ctrl_node src/ctrl_node.cpp)
+aux_source_directory(src/. SRC_LIST)
+
+add_executable(ctrl_node ${SRC_LIST})
 add_dependencies(ctrl_node ${${PROJECT_NAME}_EXPORTED_TARGETS}${catkin_EXPORTED_TARGETS})
 target_link_libraries(ctrl_node ${catkin_LIBRARIES})
 

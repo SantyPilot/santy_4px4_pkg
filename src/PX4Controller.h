@@ -1,0 +1,85 @@
+/*
+ * @file: PX4Controller.h
+ * @brief: px4 mavros control message wrapper
+ * @author: zhangxin
+ * @date: 2025-7-5
+ */
+#ifndef _PX4_CONTROLLER_H
+#define _PX4_CONTROLLER_H
+#include <mutex>
+#include <ros/ros.h>
+#include <mavros_msgs/State.h>
+#include <mavros_msgs/PositionTarget.h>
+
+namespace santy_4px4_pkg {
+enum FlightMode {
+    FM_OFFB = 0,
+    FM_RTL, // return to launch
+    FM_PHOLD,
+    FM_LAND,
+};
+enum CtrlMode {
+    CM_VEL = 0,
+    CM_ATT,
+};
+enum FrameType {
+    FT_LOCAL_NED = 0,
+    FT_LOCAL_ONED,
+    FT_BODY_NED,
+    FT_BODY_ONED,
+};
+class PX4Controller {
+public:
+   PX4Controller();
+   ~PX4Controller();
+   bool init(ros::NodeHandle& nh);
+   // async publish target task
+   void startAsyncMoveTask();
+   void stopAsyncMoveTask();
+   // basic interface to controller quadcopter
+   bool arm();
+   bool forceArm();
+   bool disArm();
+   bool takeoff(const double& height);
+   bool land();
+
+   void moveByVelocityYawrateBodyFrame(const std::vector<double>& vel = {0, 0, 0}, 
+        const double& yaw_rate = 0);
+   void moveByVelocityYawrateENU(const std::vector<double>& vel = {0, 0, 0},
+        const double& yaw_rate = 0);
+   void moveByPosENU(const std::vector<double>& pos, const double& yaw,
+        const double& yaw_rate = 0);
+
+protected:
+   bool setFlightMode(const FlightMode&);
+   void setCtrlMode(const CtrlMode& cm);
+   void ctrlMode(CtrlMode& cm);
+   mavros_msgs::PositionTarget makeVelTarget(const std::vector<double>& vel, 
+        const double& yaw_rate, const FrameType&);
+   mavros_msgs::PositionTarget makePosTarget(const std::vector<double>& pos, 
+        const double& yaw, const double& yaw_rate, const FrameType&);
+   void setPTargetBuffer(const mavros_msgs::PositionTarget& ptarget);
+   void getPTargetBuffer(mavros_msgs::PositionTarget& ptarget);
+   bool reachRequestInterval();
+private:
+    bool _inited { false };
+    mavros_msgs::State _current_state; // vehicle current state
+
+    ros::Subscriber _state_sub;
+    ros::Publisher _local_pos_pub;
+    ros::Publisher _set_raw_att_pub;
+    ros::Publisher _set_raw_pos_pub;
+    ros::ServiceClient _arming_client;
+    ros::ServiceClient _land_client;
+    ros::ServiceClient _set_mode_client;
+    ros::ServiceClient _command_client;
+
+    CtrlMode _ctrl_mode;
+    ros::Time _last_request;
+    mavros_msgs::PositionTarget _ptarget_buffer;
+    std::mutex _pt_mut;
+    std::mutex _cm_mut;
+    std::atomic<bool> _should_exit { true };
+};
+} // santy_4px4_pkg
+#endif // _PX4_CONTROLLER_H

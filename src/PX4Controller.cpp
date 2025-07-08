@@ -16,7 +16,6 @@
 #include <geometry_msgs/PoseStamped.h>
 
 namespace santy_4px4_pkg {
-
 PX4Controller::PX4Controller(): _inited(false) {}
 
 PX4Controller::~PX4Controller() {
@@ -32,7 +31,7 @@ bool PX4Controller::init(ros::NodeHandle& nh) {
     // sub
     std::function<void(const mavros_msgs::State::ConstPtr& msg)>
         state_cb = [this](const mavros_msgs::State::ConstPtr& msg) {
-        _current_state = *msg;
+        _current_state = *msg; // TODO: not thread safe
     };
     _state_sub = nh.subscribe<mavros_msgs::State>
             ("mavros/state", 10, state_cb);
@@ -63,9 +62,14 @@ bool PX4Controller::init(ros::NodeHandle& nh) {
 void PX4Controller::startAsyncMoveTask() {
     std::function<void()> task = [&]() {
         static ros::Time last_cycle = ros::Time::now();
-        while (!_should_exit) {
+        while (ros::ok() && !_should_exit) {
+            // 1. check if not in offboard, switch mode
+            offboard();
+            // 2. if not armed, do arm
+            arm();
+            // 3. publish move target message
             if (ros::Time::now() - last_cycle < ros::Duration(1 / 50.0)) {
-                continue;
+                continue; // control freq 50hz >> 2hz offboard ddl
             }
             last_cycle = ros::Time::now();
             CtrlMode cm = CtrlMode::CM_VEL;
@@ -86,9 +90,9 @@ void PX4Controller::startAsyncMoveTask() {
         }
     };
     std::thread t1(task);
-    // TODO: correct here?
     if (t1.joinable()) {
         t1.join();
+        ROS_INFO("async thread quit!");
     }
     return;
 }
@@ -97,57 +101,87 @@ void PX4Controller::stopAsyncMoveTask() {
     _should_exit = false;
 }
 
+void PX4Controller::startOffboardMoveCycle() {
+    mavros_msgs::SetMode offb_set_mode;
+    offb_set_mode.request.custom_mode = "OFFBOARD";
+
+    mavros_msgs::CommandBool arm_cmd;
+    arm_cmd.request.value = true;
+    ros::Time last_request = ros::Time::now();
+    geometry_msgs::PoseStamped pose;
+
+    pose.pose.position.x = 0;
+    pose.pose.position.y = 0;
+    pose.pose.position.z = 2;
+
+    ros::Rate rate(20.0);
+    while (ros::ok()) { // cyclly do target calculation
+        // 1. prepare if necessary, according to current state
+        offboard(); // switch mode
+        arm();
+        // continuously send offboard command
+        _local_pos_pub.publish(pose);
+        // calculate task logic
+
+        ros::spinOnce();
+        rate.sleep();
+    }
+}
+
+bool PX4Controller::offboard() {
+    return setFlightMode(FlightMode::FM_OFFB);
+}
+
 /*
  * Note: directly control with mavros message
  *   there is command long version, force arm
  *   to implement
  */
 bool PX4Controller::arm() {
-    // TODO: check inited and control interval
+    if (!_inited || !reachRequestInterval() ||
+        _current_state.armed) {
+        return false;
+    }
     mavros_msgs::CommandBool arm_cmd;
     arm_cmd.request.value = true;
     if(_arming_client.call(arm_cmd) &&
-        arm_cmd.response.success){
+        arm_cmd.response.success) {
+        _last_request = ros::Time::now(); // record timestamp
         ROS_INFO("vehicle armed!");
         return true;
     }
+    _last_request = ros::Time::now();
     ROS_WARN("vehicle arm failed!");
     return false;
 }
 
 bool PX4Controller::disArm() {
-    // TODO: check inited and control interval
+    if (!_inited || !reachRequestInterval() ||
+        !_current_state.armed) {
+        return false;
+    }
     mavros_msgs::CommandBool arm_cmd;
     arm_cmd.request.value = false;
     if(_arming_client.call(arm_cmd) &&
-        arm_cmd.response.success){
+        arm_cmd.response.success) {
+        _last_request = ros::Time::now();
         ROS_INFO("vehicle armed");
         return true;
     }
+    _last_request = ros::Time::now();
     ROS_WARN("vehicle arm failed!");
     return false;
 }
 
 bool PX4Controller::takeoff(const double& height) {
-    // determine init velocity by height
-    geometry_msgs::PoseStamped pose;
-    pose.pose.position.x = 0;
-    pose.pose.position.y = 0;
-    pose.pose.position.z = 2;
-
-    //the setpoint publishing rate MUST be faster than 2Hz
-    ros::Rate rate(20.0);
-    // send a few setpoints before starting
-    for(int i = 100; ros::ok() && i > 0; --i){
-        _local_pos_pub.publish(pose);
-        ros::spinOnce();
-        rate.sleep();
-    }
+    moveByPosENU({0, 0, height}); // publish not request
     return true;
 }
 
 bool PX4Controller::land() {
-    // TODO: check inited and control interval
+    if (!_inited || !reachRequestInterval()) {
+        return false;
+    }
     mavros_msgs::CommandTOL land_cmd;
     land_cmd.request.min_pitch = 0;
     land_cmd.request.yaw = 0;
@@ -323,7 +357,7 @@ void PX4Controller::getPTargetBuffer(mavros_msgs::PositionTarget& ptarget) {
 }
 
 bool PX4Controller::reachRequestInterval() {
-    const double& interval = 5;
+    const double& interval = 5; // 5s
     return (ros::Time::now() - _last_request > ros::Duration(interval));
 }
 

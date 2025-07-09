@@ -33,9 +33,19 @@ public:
    PX4Controller();
    ~PX4Controller();
    bool init(ros::NodeHandle& nh);
-   // async publish target task
+   /*
+    * Note: async publish target task
+    *   PX4 has a timeout of 500ms 
+    *   between two Offboard commands. 
+    *   If this timeout is exceeded, 
+    *   the commander will fall back to 
+    *   the last mode the vehicle was 
+    *   in before entering Offboard mode.
+    */
    void startAsyncMoveTask();
    void stopAsyncMoveTask();
+   void startOffboardMoveCycle();
+   bool offboard(); // switch to offboard mode
    // basic interface to controller quadcopter
    bool arm();
    bool forceArm();
@@ -47,8 +57,8 @@ public:
         const double& yaw_rate = 0);
    void moveByVelocityYawrateENU(const std::vector<double>& vel = {0, 0, 0},
         const double& yaw_rate = 0);
-   void moveByPosENU(const std::vector<double>& pos, const double& yaw,
-        const double& yaw_rate = 0);
+   void moveByPosENU(const std::vector<double>& pos = {0, 0, 0}, 
+        const double& yaw = 0, const double& yaw_rate = 0);
 
 protected:
    bool setFlightMode(const FlightMode&);

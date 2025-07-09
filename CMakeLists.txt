@@ -28,9 +28,10 @@ include_directories(
 )
 
 ## Declare a C++ library
-aux_source_directory(src/. SRC_LIST)
-
-add_executable(ctrl_node ${SRC_LIST})
+add_executable(ctrl_node src/ctrl_node.cpp src/PX4Controller.cpp)
 add_dependencies(ctrl_node ${${PROJECT_NAME}_EXPORTED_TARGETS}${catkin_EXPORTED_TARGETS})
 target_link_libraries(ctrl_node ${catkin_LIBRARIES})
 
+# joy node
+add_executable(js_node src/joy_node.cpp)
+target_link_libraries(js_node ${catkin_LIBRARIES})

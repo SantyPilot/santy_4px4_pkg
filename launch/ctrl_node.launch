@@ -1,3 +1,7 @@
 <launch>
-    <node pkg="santy_4px4_pkg" type="ctrl_node" name="ctrl_node"/>
+  <node pkg="santy_4px4_pkg" type="ctrl_node" name="ctrl_node" output="screen"/>
+  <node pkg="santy_4px4_pkg" type="js_node" name="js_node" output="screen" >
+      <param name="dev" type="string" value="/dev/input/js0" />
+      <param name="deadzone" value="0.12" />
+  </node>
 </launch>

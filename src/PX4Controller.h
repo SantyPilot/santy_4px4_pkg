@@ -28,11 +28,13 @@ enum FrameType {
     FT_BODY_NED,
     FT_BODY_ONED,
 };
+class TargetGenerator;
 class PX4Controller {
 public:
    PX4Controller();
    ~PX4Controller();
    bool init(ros::NodeHandle& nh);
+   void setTargetGenerator(TargetGenerator*);
    /*
     * Note: async publish target task
     *   PX4 has a timeout of 500ms 
@@ -90,6 +92,8 @@ private:
     std::mutex _pt_mut;
     std::mutex _cm_mut;
     std::atomic<bool> _should_exit { true };
+
+    TargetGenerator* _target_gen;
 };
 } // santy_4px4_pkg
 #endif // _PX4_CONTROLLER_H

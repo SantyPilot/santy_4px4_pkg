@@ -16,7 +16,8 @@
 #include <geometry_msgs/PoseStamped.h>
 
 namespace santy_4px4_pkg {
-PX4Controller::PX4Controller(): _inited(false) {}
+PX4Controller::PX4Controller(): _inited(false), 
+    _target_gen {nullptr} {}
 
 PX4Controller::~PX4Controller() {
     // stop all async task
@@ -57,6 +58,10 @@ bool PX4Controller::init(ros::NodeHandle& nh) {
             ("mavros/setpoint_position/local", 10); // simple control
     _inited = true;
     return true;
+}
+
+void PX4Controller::setTargetGenerator(TargetGenerator* tg) {
+    _target_gen = tg;
 }
 
 void PX4Controller::startAsyncMoveTask() {

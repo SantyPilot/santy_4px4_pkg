@@ -10,6 +10,7 @@
 #include <ros/ros.h>
 #include <mavros_msgs/State.h>
 #include <mavros_msgs/PositionTarget.h>
+#include "LocalPoseInfo.h"
 
 namespace santy_4px4_pkg {
 enum FlightMode {
@@ -61,6 +62,7 @@ public:
         const double& yaw_rate = 0);
    void moveByPosENU(const std::vector<double>& pos = {0, 0, 0}, 
         const double& yaw = 0, const double& yaw_rate = 0);
+    bool moveTargetAboutToArrive(const double&);
 
 protected:
    bool setFlightMode(const FlightMode&);
@@ -78,6 +80,7 @@ private:
     mavros_msgs::State _current_state; // vehicle current state
 
     ros::Subscriber _state_sub;
+    ros::Subscriber _local_pos_sub;
     ros::Publisher _local_pos_pub;
     ros::Publisher _set_raw_att_pub;
     ros::Publisher _set_raw_pos_pub;
@@ -89,9 +92,11 @@ private:
     CtrlMode _ctrl_mode;
     ros::Time _last_request;
     mavros_msgs::PositionTarget _ptarget_buffer;
+    std::atomic<bool> _should_exit { true };
+    LocalPoseInfo _local_pose;
+    // deprecate, use sync cycle
     std::mutex _pt_mut;
     std::mutex _cm_mut;
-    std::atomic<bool> _should_exit { true };
 
     TargetGenerator* _target_gen;
 };

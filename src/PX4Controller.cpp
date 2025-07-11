@@ -5,6 +5,8 @@
  * @date: 2025-7-5
  */
 #include "PX4Controller.h"
+#include "utils.h"
+#include "TargetGenerator.h"
 #include <functional>
 #include <mutex>
 #include <thread>
@@ -36,6 +38,20 @@ bool PX4Controller::init(ros::NodeHandle& nh) {
     };
     _state_sub = nh.subscribe<mavros_msgs::State>
             ("mavros/state", 10, state_cb);
+    std::function<void(const geometry_msgs::PoseStamped::ConstPtr& msg)>
+        pose_cb = [this](const geometry_msgs::PoseStamped::ConstPtr& msg) {
+        _local_pose.pos_inited = true;
+        _local_pose.pos = { msg->pose.position.x - _local_pose.pos_offset[0], 
+                            msg->pose.position.y - _local_pose.pos_offset[1], 
+                            msg->pose.position.z - _local_pose.pos_offset[2] };
+        _local_pose.q = { msg->pose.orientation.w, 
+                          msg->pose.orientation.x,
+                          msg->pose.orientation.y,
+                          msg->pose.orientation.z};
+        _local_pose.rpy = Utils::Quant2RPY(_local_pose.q);
+    };
+    _local_pos_sub = nh.subscribe<geometry_msgs::PoseStamped>
+            ("mavros/local_position/pose", 10, pose_cb);
     // client
     _arming_client = nh.serviceClient<mavros_msgs::CommandBool>
             ("mavros/cmd/arming");
@@ -56,6 +72,11 @@ bool PX4Controller::init(ros::NodeHandle& nh) {
             ("mavros/setpoint_raw/local", 10);
     _local_pos_pub = nh.advertise<geometry_msgs::PoseStamped>
             ("mavros/setpoint_position/local", 10); // simple control
+    
+    // other business
+    // TODO: switch with xml configuration
+    _target_gen = new CircleTargetGenerator;
+    _target_gen->init(nh);
     _inited = true;
     return true;
 }
@@ -107,26 +128,51 @@ void PX4Controller::stopAsyncMoveTask() {
 }
 
 void PX4Controller::startOffboardMoveCycle() {
-    mavros_msgs::SetMode offb_set_mode;
-    offb_set_mode.request.custom_mode = "OFFBOARD";
-
-    mavros_msgs::CommandBool arm_cmd;
-    arm_cmd.request.value = true;
-    ros::Time last_request = ros::Time::now();
-    geometry_msgs::PoseStamped pose;
-
-    pose.pose.position.x = 0;
-    pose.pose.position.y = 0;
-    pose.pose.position.z = 2;
-
     ros::Rate rate(20.0);
     while (ros::ok()) { // cyclly do target calculation
         // 1. prepare if necessary, according to current state
         offboard(); // switch mode
         arm();
-        // continuously send offboard command
-        _local_pos_pub.publish(pose);
-        // calculate task logic
+
+        // demo send offboard command
+        // _local_pos_pub.publish(pose);
+
+        // 2. set target here
+        if (_target_gen->arrived()) {
+            MoveInfo mi;
+            _target_gen->move(mi);
+            // calculate task logic, get from other set
+            switch (mi.mt) {
+                case MoveType::MT_VFLU:
+                    moveByVelocityYawrateBodyFrame(mi.vel, mi.yr);
+                    break;
+                case MoveType::MT_VENU:
+                    moveByVelocityYawrateENU(mi.vel, mi.yr);
+                    break;
+                case MoveType::MT_PENU:
+                    moveByPosENU(mi.vel, mi.yaw, mi.yr);
+                    break;
+                default:
+                    break;
+            }
+        }
+        // 3. move on target
+        // TODO: united the two interface
+        CtrlMode cm = CtrlMode::CM_VEL;
+        ctrlMode(cm); // safe get
+        mavros_msgs::PositionTarget ptarget;
+        getPTargetBuffer(ptarget); // safe get
+
+        switch (cm) {
+            case CtrlMode::CM_VEL:
+                _set_raw_att_pub.publish(ptarget);
+                break;
+            case CtrlMode::CM_ATT:
+                _set_raw_pos_pub.publish(ptarget);
+                break;
+            default:
+                break;
+        }
 
         ros::spinOnce();
         rate.sleep();
@@ -179,6 +225,8 @@ bool PX4Controller::disArm() {
 }
 
 bool PX4Controller::takeoff(const double& height) {
+    _local_pose.yaw_offset = _local_pose.rpy[2];
+    _local_pose.pos_offset = _local_pose.pos;
     moveByPosENU({0, 0, height}); // publish not request
     return true;
 }
@@ -229,6 +277,11 @@ void PX4Controller::moveByPosENU(const std::vector<double>& pos,
     setPTargetBuffer(ptarget);
 }
 
+bool PX4Controller::moveTargetAboutToArrive(const double& percent) {
+    // check interval simple version
+    return reachRequestInterval();
+}
+
 // -- protected
 bool PX4Controller::setFlightMode(const FlightMode& fm) {
     // http://wiki.ros.org/mavros/CustomModes
@@ -253,13 +306,13 @@ bool PX4Controller::setFlightMode(const FlightMode& fm) {
 }
 
 void PX4Controller::setCtrlMode(const CtrlMode& cm) { 
-    std::lock_guard<std::mutex> lk(_cm_mut);
+    // std::lock_guard<std::mutex> lk(_cm_mut);
     _ctrl_mode = cm; 
     return;
 }
 
 void PX4Controller::ctrlMode(CtrlMode& cm) { 
-    std::lock_guard<std::mutex> lk(_cm_mut);
+    // std::lock_guard<std::mutex> lk(_cm_mut);
     cm =_ctrl_mode; 
     return;
 }
@@ -352,12 +405,12 @@ mavros_msgs::PositionTarget PX4Controller::makePosTarget(const std::vector<doubl
 
 // TODO: lock is not efficient, should opt this
 void PX4Controller::setPTargetBuffer(const mavros_msgs::PositionTarget& ptarget) {
-    std::lock_guard<std::mutex> lk(_pt_mut);
+    // std::lock_guard<std::mutex> lk(_pt_mut);
     _ptarget_buffer = ptarget;
 }
 
 void PX4Controller::getPTargetBuffer(mavros_msgs::PositionTarget& ptarget) {
-    std::lock_guard<std::mutex> lk(_pt_mut);
+    // std::lock_guard<std::mutex> lk(_pt_mut);
     ptarget = _ptarget_buffer;
 }
 

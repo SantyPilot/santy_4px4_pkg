@@ -13,14 +13,16 @@
 namespace santy_4px4_pkg {
 void TargetGenerator::init(ros::NodeHandle& nh) {}
 
-void TargetGenerator::move(MoveInfo&) {}
+void TargetGenerator::reset() {}
+
+bool TargetGenerator::move(MoveInfo&) { return true; }
 
 bool TargetGenerator::arrived() {
     return true;
 }
 
 // ---
-CircleTargetGenerator::CircleTargetGenerator(): _idx(0) {}
+CircleTargetGenerator::CircleTargetGenerator(): _idx(-1) {}
 
 void CircleTargetGenerator::init(ros::NodeHandle& nh) {
     std::function<void(const geometry_msgs::PoseStamped::ConstPtr& msg)>
@@ -39,15 +41,24 @@ void CircleTargetGenerator::init(ros::NodeHandle& nh) {
             ("mavros/local_position/pose", 10, pose_cb);
 }
 
-void CircleTargetGenerator::move(MoveInfo& mi) {
+void CircleTargetGenerator::reset() {
+    _idx = 0;
+}
+
+bool CircleTargetGenerator::move(MoveInfo& mi) {
     _idx++;
     const auto& pos = circle(total, _idx);
     mi.pos = pos;
     mi.mt = MoveType::MT_PENU;
-    return;
+    ROS_INFO_STREAM("circle task move to next target, pos " <<
+        mi.pos[0] << ", " << mi.pos[1] << ", " <<mi.pos[2]);
+    return _idx <= total; // exceed, just finish
 }
 
 bool CircleTargetGenerator::arrived() {
+    if (_idx == -1) {
+        return true;
+    }
     const auto& pos = circle(total, _idx); // current target
     const double& eps = 0.1; // m3
     return (Utils::distance(_local_pose.pos, pos) < eps);

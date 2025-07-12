@@ -89,11 +89,10 @@ void PX4Controller::startAsyncMoveTask() {
     std::function<void()> task = [&]() {
         static ros::Time last_cycle = ros::Time::now();
         while (ros::ok() && !_should_exit) {
-            // 1. check if not in offboard, switch mode
+            // 1. switch to offboard mode, do arm and takeoff
             offboard();
-            // 2. if not armed, do arm
             arm();
-            // 3. publish move target message
+            // 2. publish move target message
             if (ros::Time::now() - last_cycle < ros::Duration(1 / 50.0)) {
                 continue; // control freq 50hz >> 2hz offboard ddl
             }
@@ -128,19 +127,41 @@ void PX4Controller::stopAsyncMoveTask() {
 }
 
 void PX4Controller::startOffboardMoveCycle() {
+    // 1. init 10 times
+    int32_t rest_times = 10;
     ros::Rate rate(20.0);
+    while (ros::ok()) {
+        if (reachRequestInterval()) {
+            offboard(); // switch mode
+            forceArm(); // must control freq! 
+            if (takeoff(1.25/* vz */, 3)) { // take off succeed
+                break;
+            }
+            rest_times--;
+            if (rest_times < 0) {
+                ROS_WARN("task init failed!");
+                return;
+            }
+        }
+        // must send dump msg to hold on connection every 500ms
+        geometry_msgs::PoseStamped pose;
+        pose.pose.position.x = 0;
+        pose.pose.position.y = 0;
+        pose.pose.position.z = 0;
+        _local_pos_pub.publish(pose);
+
+        ros::Duration(0.1).sleep(); // sleep for 0.1s
+        ros::spinOnce(); // give up cpu to update state
+    }
+    ROS_INFO("vehicle is now ready to run task!");
+    // 2. do main cycle, run task
     while (ros::ok()) { // cyclly do target calculation
-        // 1. prepare if necessary, according to current state
-        offboard(); // switch mode
-        arm();
-
-        // demo send offboard command
-        // _local_pos_pub.publish(pose);
-
-        // 2. set target here
+        // go to next target here
         if (_target_gen->arrived()) {
             MoveInfo mi;
-            _target_gen->move(mi);
+            if (!_target_gen->move(mi)) { // arrived last
+                // do land, TODO: support task chain
+            }
             // calculate task logic, get from other set
             switch (mi.mt) {
                 case MoveType::MT_VFLU:
@@ -150,29 +171,14 @@ void PX4Controller::startOffboardMoveCycle() {
                     moveByVelocityYawrateENU(mi.vel, mi.yr);
                     break;
                 case MoveType::MT_PENU:
-                    moveByPosENU(mi.vel, mi.yaw, mi.yr);
+                    moveByPosENU(mi.pos, mi.yaw, mi.yr);
                     break;
                 default:
                     break;
             }
         }
-        // 3. move on target
-        // TODO: united the two interface
-        CtrlMode cm = CtrlMode::CM_VEL;
-        ctrlMode(cm); // safe get
-        mavros_msgs::PositionTarget ptarget;
-        getPTargetBuffer(ptarget); // safe get
-
-        switch (cm) {
-            case CtrlMode::CM_VEL:
-                _set_raw_att_pub.publish(ptarget);
-                break;
-            case CtrlMode::CM_ATT:
-                _set_raw_pos_pub.publish(ptarget);
-                break;
-            default:
-                break;
-        }
+        // publish command
+        publishTargetCmd();
 
         ros::spinOnce();
         rate.sleep();
@@ -206,6 +212,28 @@ bool PX4Controller::arm() {
     return false;
 }
 
+bool PX4Controller::forceArm() {
+    if (!_inited || !reachRequestInterval() ||
+        _current_state.armed) {
+        return false;
+    }
+    mavros_msgs::CommandLong arm_cmd_long;
+    arm_cmd_long.request.broadcast = false; // no broad
+    arm_cmd_long.request.command = 400; // MAV_CMD_COMPONENT_ARM_DISARM 
+    arm_cmd_long.request.confirmation = 1; // not confirmed 
+    arm_cmd_long.request.param1 = 1; // 1 to arm, 0 to disarm
+    if(_command_client.call(arm_cmd_long) &&
+        arm_cmd_long.response.success) {
+        _last_request = ros::Time::now(); // record timestamp
+        ROS_INFO("vehicle force armed!");
+        return true;
+    }
+    
+    ROS_WARN("vehicle force arm failed!");
+    _last_request = ros::Time::now();
+    return false;
+}
+
 bool PX4Controller::disArm() {
     if (!_inited || !reachRequestInterval() ||
         !_current_state.armed) {
@@ -224,10 +252,35 @@ bool PX4Controller::disArm() {
     return false;
 }
 
-bool PX4Controller::takeoff(const double& height) {
+bool PX4Controller::takeoff(const double& vz, const double& height) {
+    // should be already armed, or will fail
+    if (!_current_state.armed || _current_state.mode != "OFFBOARD") {
+        return false;
+    }
+    setCtrlMode(CtrlMode::CM_VEL);
     _local_pose.yaw_offset = _local_pose.rpy[2];
     _local_pose.pos_offset = _local_pose.pos;
-    moveByPosENU({0, 0, height}); // publish not request
+
+    const auto& ptarget = makeVelTarget({0, 0, vz});
+    setPTargetBuffer(ptarget);
+
+    bool takeoff_done = false;
+    while (!takeoff_done) { // sub while, be careful
+        if (!_current_state.armed || _current_state.mode != "OFFBOARD") {
+            ROS_WARN("takeoff failed");
+            return false; // disarmed
+        }
+        publishTargetCmd();
+        ROS_INFO_STREAM("do take off, current height " << _local_pose.pos[2]);
+        takeoff_done = _local_pose.pos[2] > 0.85 * height;
+        ros::Duration(0.1).sleep(); // sleep for 0.1s
+        ros::spinOnce(); // should give up cpu
+    }
+
+    // hover at 0 velocity
+    const auto& ptarget_hold = makeVelTarget();
+    setPTargetBuffer(ptarget_hold);
+    publishTargetCmd();
     return true;
 }
 
@@ -299,6 +352,8 @@ bool PX4Controller::setFlightMode(const FlightMode& fm) {
         if (_set_mode_client.call(target_set_mode) &&
             target_set_mode.response.mode_sent) {
             ROS_INFO("target flight mode enabled!");
+        } else {
+            ROS_WARN("target flight mode set failed!");
         }
         _last_request = ros::Time::now();
     }
@@ -357,6 +412,18 @@ mavros_msgs::PositionTarget PX4Controller::makeVelTarget(
                         mavros_msgs::PositionTarget::FORCE +
                         mavros_msgs::PositionTarget::IGNORE_YAW;
     ptarget.yaw_rate = yaw_rate;
+
+    // debug
+    /*
+    ROS_INFO_STREAM("stamp: " << ptarget.header.stamp);
+    ROS_INFO_STREAM("coordinate: " << std::to_string(ptarget.coordinate_frame));
+
+    ROS_INFO_STREAM("velx: " << ptarget.velocity.x);
+    ROS_INFO_STREAM("vely: " << ptarget.velocity.y);
+    ROS_INFO_STREAM("velz: " << ptarget.velocity.z);
+    ROS_INFO_STREAM("type_mask: " << ptarget.type_mask);
+    ROS_INFO_STREAM("yaw rate: " << ptarget.yaw_rate);
+    */
     return ptarget;
 }
 
@@ -417,6 +484,35 @@ void PX4Controller::getPTargetBuffer(mavros_msgs::PositionTarget& ptarget) {
 bool PX4Controller::reachRequestInterval() {
     const double& interval = 5; // 5s
     return (ros::Time::now() - _last_request > ros::Duration(interval));
+}
+
+void PX4Controller::publishTargetCmd() {
+    CtrlMode cm = CtrlMode::CM_VEL;
+    ctrlMode(cm); // safe get
+    mavros_msgs::PositionTarget ptarget;
+    getPTargetBuffer(ptarget); // safe get
+
+    switch (cm) {
+        case CtrlMode::CM_VEL:
+            // print log info
+            /*
+            ROS_INFO_STREAM("ctrl mode " << cm);
+            ROS_INFO_STREAM("final target position x " << ptarget.position.x);
+            ROS_INFO_STREAM("final target position y " << ptarget.position.y);
+            ROS_INFO_STREAM("final target position z " << ptarget.position.z);
+            ROS_INFO_STREAM("final target velocity x " << ptarget.velocity.x);
+            ROS_INFO_STREAM("final target velocity y " << ptarget.velocity.y);
+            ROS_INFO_STREAM("final target velocity z " << ptarget.velocity.z);
+            */
+            _set_raw_pos_pub.publish(ptarget);
+            break;
+        case CtrlMode::CM_ATT:
+            _set_raw_att_pub.publish(ptarget);
+            break;
+        default:
+            break;
+    }
+    return;
 }
 
 } // santy_4px4_pkg

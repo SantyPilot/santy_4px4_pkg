@@ -53,7 +53,7 @@ public:
    bool arm();
    bool forceArm();
    bool disArm();
-   bool takeoff(const double& height);
+   bool takeoff(const double& vz, const double& height);
    bool land();
 
    void moveByVelocityYawrateBodyFrame(const std::vector<double>& vel = {0, 0, 0}, 
@@ -68,13 +68,14 @@ protected:
    bool setFlightMode(const FlightMode&);
    void setCtrlMode(const CtrlMode& cm);
    void ctrlMode(CtrlMode& cm);
-   mavros_msgs::PositionTarget makeVelTarget(const std::vector<double>& vel, 
-        const double& yaw_rate, const FrameType&);
+   mavros_msgs::PositionTarget makeVelTarget(const std::vector<double>& vel = {0, 0, 0}, 
+        const double& yaw_rate = 0, const FrameType& = FrameType::FT_BODY_NED);
    mavros_msgs::PositionTarget makePosTarget(const std::vector<double>& pos, 
         const double& yaw, const double& yaw_rate, const FrameType&);
    void setPTargetBuffer(const mavros_msgs::PositionTarget& ptarget);
    void getPTargetBuffer(mavros_msgs::PositionTarget& ptarget);
    bool reachRequestInterval();
+   void publishTargetCmd();
 private:
     bool _inited { false };
     mavros_msgs::State _current_state; // vehicle current state

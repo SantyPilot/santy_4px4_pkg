@@ -29,7 +29,8 @@ struct MoveInfo {
 class TargetGenerator {
 public:
     virtual void init(ros::NodeHandle& nh);
-    virtual void move(MoveInfo&);
+    void reset();
+    virtual bool move(MoveInfo&);
     virtual bool arrived();
 };
 
@@ -39,7 +40,8 @@ public:
     CircleTargetGenerator();
     ~CircleTargetGenerator();
     virtual void init(ros::NodeHandle& nh);
-    virtual void move(MoveInfo&);
+    void reset();
+    virtual bool move(MoveInfo&);
     virtual bool arrived();
 protected:
     std::vector<double> circle(const size_t& total, 
@@ -49,7 +51,7 @@ private:
     const double radius = 3; // 3m
     const double height = 3;
     const size_t total = 10;
-    size_t _idx = 0;
+    int32_t _idx = -1;
 
     LocalPoseInfo _local_pose;
 };

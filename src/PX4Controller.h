@@ -35,7 +35,7 @@ public:
    PX4Controller();
    ~PX4Controller();
    bool init(ros::NodeHandle& nh);
-   void setTargetGenerator(TargetGenerator*);
+   void setTargets(const std::vector<TargetGenerator*>&);
    /*
     * Note: async publish target task
     *   PX4 has a timeout of 500ms 
@@ -99,7 +99,7 @@ private:
     std::mutex _pt_mut;
     std::mutex _cm_mut;
 
-    TargetGenerator* _target_gen;
+    std::vector<TargetGenerator*> _target_list;
 };
 } // santy_4px4_pkg
 #endif // _PX4_CONTROLLER_H

@@ -19,7 +19,7 @@
 
 namespace santy_4px4_pkg {
 PX4Controller::PX4Controller(): _inited(false), 
-    _target_gen {nullptr} {}
+    _target_list {} {}
 
 PX4Controller::~PX4Controller() {
     // stop all async task
@@ -34,7 +34,7 @@ bool PX4Controller::init(ros::NodeHandle& nh) {
     // sub
     std::function<void(const mavros_msgs::State::ConstPtr& msg)>
         state_cb = [this](const mavros_msgs::State::ConstPtr& msg) {
-        _current_state = *msg; // TODO: not thread safe
+        _current_state = *msg;
     };
     _state_sub = nh.subscribe<mavros_msgs::State>
             ("mavros/state", 10, state_cb);
@@ -75,14 +75,16 @@ bool PX4Controller::init(ros::NodeHandle& nh) {
     
     // other business
     // TODO: switch with xml configuration
-    _target_gen = new CircleTargetGenerator;
-    _target_gen->init(nh);
+    _target_list = { new CircleTargetGenerator };
+    for (auto* target: _target_list) {
+        target->init(nh);
+    }
     _inited = true;
     return true;
 }
 
-void PX4Controller::setTargetGenerator(TargetGenerator* tg) {
-    _target_gen = tg;
+void PX4Controller::setTargets(const std::vector<TargetGenerator*>& targets) {
+    _target_list = targets;
 }
 
 void PX4Controller::startAsyncMoveTask() {
@@ -134,8 +136,8 @@ void PX4Controller::startOffboardMoveCycle() {
         if (reachRequestInterval()) {
             offboard(); // switch mode
             forceArm(); // must control freq! 
-            if (takeoff(1.25/* vz */, 3)) { // take off succeed
-                break;
+            if (takeoff(1.25/* vz m/s */, 3/* height m */)) {
+                break; // take off succeed
             }
             rest_times--;
             if (rest_times < 0) {
@@ -154,27 +156,43 @@ void PX4Controller::startOffboardMoveCycle() {
         ros::spinOnce(); // give up cpu to update state
     }
     ROS_INFO("vehicle is now ready to run task!");
+
     // 2. do main cycle, run task
+    size_t idx = 0;
+    std::vector<double> home_pos = {0, 0, 3};
+    const double eps = 0.1;
     while (ros::ok()) { // cyclly do target calculation
-        // go to next target here
-        if (_target_gen->arrived()) {
-            MoveInfo mi;
-            if (!_target_gen->move(mi)) { // arrived last
-                // do land, TODO: support task chain
+        if (idx >= _target_list.size()) { // finish last task, go to home
+            // ROS_INFO_STREAM("local pos: " << _local_pose.pos[0] << ", "
+            //    << _local_pose.pos[1] << ", " << _local_pose.pos[2]);
+            if (Utils::distance(_local_pose.pos, home_pos) < eps) {
+                land(); // arrive home
+            } else {
+                moveByPosENU(home_pos);
             }
-            // calculate task logic, get from other set
-            switch (mi.mt) {
-                case MoveType::MT_VFLU:
-                    moveByVelocityYawrateBodyFrame(mi.vel, mi.yr);
-                    break;
-                case MoveType::MT_VENU:
-                    moveByVelocityYawrateENU(mi.vel, mi.yr);
-                    break;
-                case MoveType::MT_PENU:
-                    moveByPosENU(mi.pos, mi.yaw, mi.yr);
-                    break;
-                default:
-                    break;
+        } else {
+            // go to next target here
+            auto* target = _target_list[idx];
+            if (target->arrived()) {
+                MoveInfo mi;
+                if (!target->move(mi)) { // arrived last
+                    idx++;
+                    continue;
+                }
+                // calculate task logic, get from other set
+                switch (mi.mt) {
+                    case MoveType::MT_VFLU:
+                        moveByVelocityYawrateBodyFrame(mi.vel, mi.yr);
+                        break;
+                    case MoveType::MT_VENU:
+                        moveByVelocityYawrateENU(mi.vel, mi.yr);
+                        break;
+                    case MoveType::MT_PENU:
+                        moveByPosENU(mi.pos, mi.yaw, mi.yr);
+                        break;
+                    default:
+                        break;
+                }
             }
         }
         // publish command
@@ -271,7 +289,7 @@ bool PX4Controller::takeoff(const double& vz, const double& height) {
             return false; // disarmed
         }
         publishTargetCmd();
-        ROS_INFO_STREAM("do take off, current height " << _local_pose.pos[2]);
+        ROS_INFO_STREAM("take off in process, current height " << _local_pose.pos[2]);
         takeoff_done = _local_pose.pos[2] > 0.85 * height;
         ros::Duration(0.1).sleep(); // sleep for 0.1s
         ros::spinOnce(); // should give up cpu

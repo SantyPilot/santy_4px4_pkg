@@ -40,12 +40,7 @@ int main(int argc, char **argv)
     }
     ROS_INFO("connected");
 
-    geometry_msgs::PoseStamped pose;
-    pose.pose.position.x = 0;
-    pose.pose.position.y = 0;
-    pose.pose.position.z = 2;
-
-    // use move wrapper
+    // syncronly run all tasks
     santy_4px4_pkg::PX4Controller flight_ctrller;
     flight_ctrller.init(nh);
     flight_ctrller.startOffboardMoveCycle();

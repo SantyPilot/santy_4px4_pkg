@@ -181,7 +181,7 @@ void PX4Controller::startOffboardMoveCycle() {
                 }
                 // calculate task logic, get from other set
                 switch (mi.mt) {
-                    case MoveType::MT_VFLU:
+                    case MoveType::MT_VFLU: // body frame
                         moveByVelocityYawrateBodyFrame(mi.vel, mi.yr);
                         break;
                     case MoveType::MT_VENU:

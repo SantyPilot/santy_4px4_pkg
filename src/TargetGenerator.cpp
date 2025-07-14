@@ -9,7 +9,8 @@
 #include <geometry_msgs/PoseStamped.h>
 #include <cmath>
 
-#define _USE_MATH_DEFINES
+#define _USE_MATH_DEFINES // M_PI
+
 namespace santy_4px4_pkg {
 void TargetGenerator::init(ros::NodeHandle& nh) {}
 

@@ -31,6 +31,7 @@ include_directories(
 add_executable(ctrl_node src/ctrl_node.cpp
                          src/PX4Controller.cpp 
                          src/TargetGenerator.cpp
+                         src/TGJoystick.cpp
                          src/utils.cpp)
 add_dependencies(ctrl_node ${${PROJECT_NAME}_EXPORTED_TARGETS}${catkin_EXPORTED_TARGETS})
 target_link_libraries(ctrl_node ${catkin_LIBRARIES})

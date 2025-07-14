@@ -16,14 +16,16 @@ void TGJoystick::init(ros::NodeHandle& nh) {
         const size_t& lsf_idx = (size_t)JS_AXIS_INDEX::LSTICK_FRONT / 2;
         const size_t& rsl_idx = (size_t)JS_AXIS_INDEX::RSTICK_LEFT / 2;
         const size_t& rsf_idx = (size_t)JS_AXIS_INDEX::RSTICK_FRONT / 2;
-        double lr_val = msg->axes[lsl_idx]; // 1 -> -1
+        double ylyr_val = msg->axes[lsl_idx]; // 1 -> -1
         double fb_val = msg->axes[lsf_idx];
-        double ylyr_val = msg->axes[rsl_idx];
+        double lr_val = msg->axes[rsl_idx];
         double ud_val = msg->axes[rsf_idx];
+        /*
         ROS_INFO_STREAM("left right ctrl value: " << lr_val
-                << "front back ctrl value: " << fb_val
-                << "yaw left yaw ctrl right value: " << ylyr_val
-                << "up down ctrl value: " << ud_val);
+                << ", front back ctrl value: " << fb_val
+                << ", yaw left yaw ctrl right value: " << ylyr_val
+                << ", up down ctrl value: " << ud_val);
+                */
         _jsc_info.move = {lr_val, fb_val, ud_val, ylyr_val};
 
         // stop task

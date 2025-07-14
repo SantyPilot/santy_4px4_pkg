@@ -7,6 +7,7 @@
 #include "PX4Controller.h"
 #include "utils.h"
 #include "TargetGenerator.h"
+#include "TGJoystick.h"
 #include <functional>
 #include <mutex>
 #include <thread>
@@ -75,7 +76,8 @@ bool PX4Controller::init(ros::NodeHandle& nh) {
     
     // other business
     // TODO: switch with xml configuration
-    _target_list = { new CircleTargetGenerator };
+    _target_list = { /* new CircleTargetGenerator */
+                     new TGJoystick };
     for (auto* target: _target_list) {
         target->init(nh);
     }

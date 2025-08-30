@@ -100,6 +100,8 @@ private:
     std::mutex _cm_mut;
 
     std::vector<TargetGenerator*> _target_list;
+
+    const double height = 1; // 2m
 };
 } // santy_4px4_pkg
 #endif // _PX4_CONTROLLER_H

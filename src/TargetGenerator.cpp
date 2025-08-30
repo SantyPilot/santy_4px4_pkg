@@ -48,20 +48,29 @@ void CircleTargetGenerator::reset() {
 
 bool CircleTargetGenerator::move(MoveInfo& mi) {
     _idx++;
-    const auto& pos = circle(total, _idx);
-    mi.pos = pos;
+    const auto& pos_yaw = circle(total, _idx);
+    mi.pos = { pos_yaw[0], pos_yaw[1], pos_yaw[2] };
+    mi.yaw = pos_yaw[3];
     mi.mt = MoveType::MT_PENU;
-    ROS_INFO_STREAM("circle task move to next target, pos " <<
-        mi.pos[0] << ", " << mi.pos[1] << ", " <<mi.pos[2]);
-    return _idx <= total; // exceed, just finish
+    // ROS_INFO_STREAM("circle task move to next target, pos " <<
+    //    mi.pos[0] << ", " << mi.pos[1] << ", " << mi.pos[2]);
+    if (_idx > total) {
+        reset();
+    }
+    return true; // exceed, just finish
 }
 
 bool CircleTargetGenerator::arrived() {
     if (_idx == -1) {
         return true;
     }
-    const auto& pos = circle(total, _idx); // current target
+    const auto& pos_yaw = circle(total, _idx); // current target
+    const std::vector<double>& pos = { pos_yaw[0], pos_yaw[1], pos_yaw[2] };
     const double& eps = 0.1; // m3
+    /*ROS_INFO_STREAM("current position is " <<
+        _local_pose.pos[0] << ", " << _local_pose.pos[1]
+        << ", " << _local_pose.pos[2]);
+        */
     return (Utils::distance(_local_pose.pos, pos) < eps);
 }
 
@@ -70,6 +79,10 @@ std::vector<double> CircleTargetGenerator::circle(
     double angle_in_rad = 2 * M_PI * idx / total;
     double pos_x = radius * std::cos(angle_in_rad);
     double pos_y = radius * std::sin(angle_in_rad);
-    return {pos_x, pos_y, height};
+    double yaw = M_PI / 2 + 2 * M_PI * idx / total;
+    if (yaw > M_PI) {
+        yaw = yaw - 2 * M_PI;
+    }
+    return {pos_x, pos_y, height, yaw};
 }
 } // santy_4px4_pkg

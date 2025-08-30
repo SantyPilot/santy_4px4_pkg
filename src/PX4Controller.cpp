@@ -76,8 +76,8 @@ bool PX4Controller::init(ros::NodeHandle& nh) {
     
     // other business
     // TODO: switch with xml configuration
-    _target_list = { /* new CircleTargetGenerator */
-                     new TGJoystick };
+    _target_list = { new CircleTargetGenerator
+                     /* new TGJoystick */ };
     for (auto* target: _target_list) {
         target->init(nh);
     }
@@ -138,7 +138,7 @@ void PX4Controller::startOffboardMoveCycle() {
         if (reachRequestInterval()) {
             offboard(); // switch mode
             forceArm(); // must control freq! 
-            if (takeoff(1.25/* vz m/s */, 3/* height m */)) {
+            if (takeoff(1.25/* vz m/s */, height/* height m */)) {
                 break; // take off succeed
             }
             rest_times--;
@@ -161,7 +161,7 @@ void PX4Controller::startOffboardMoveCycle() {
 
     // 2. do main cycle, run task
     size_t idx = 0;
-    std::vector<double> home_pos = {0, 0, 3};
+    std::vector<double> home_pos = {0, 0, height};
     const double eps = 0.1;
     while (ros::ok()) { // cyclly do target calculation
         if (idx >= _target_list.size()) { // finish last task, go to home
@@ -285,13 +285,19 @@ bool PX4Controller::takeoff(const double& vz, const double& height) {
     setPTargetBuffer(ptarget);
 
     bool takeoff_done = false;
+    ROS_INFO_STREAM("start take off to height, " << height);
+    size_t log_count = 0;
     while (!takeoff_done) { // sub while, be careful
         if (!_current_state.armed || _current_state.mode != "OFFBOARD") {
             ROS_WARN("takeoff failed");
             return false; // disarmed
         }
         publishTargetCmd();
-        ROS_INFO_STREAM("take off in process, current height " << _local_pose.pos[2]);
+        log_count++;
+        if (log_count % 5 == 0) {
+            ROS_INFO_STREAM("take off in process, current height " 
+                << _local_pose.pos[2]);
+        }
         takeoff_done = _local_pose.pos[2] > 0.85 * height;
         ros::Duration(0.1).sleep(); // sleep for 0.1s
         ros::spinOnce(); // should give up cpu
@@ -515,18 +521,16 @@ void PX4Controller::publishTargetCmd() {
     switch (cm) {
         case CtrlMode::CM_VEL:
             // print log info
-            /*
-            ROS_INFO_STREAM("ctrl mode " << cm);
-            ROS_INFO_STREAM("final target position x " << ptarget.position.x);
-            ROS_INFO_STREAM("final target position y " << ptarget.position.y);
-            ROS_INFO_STREAM("final target position z " << ptarget.position.z);
-            ROS_INFO_STREAM("final target velocity x " << ptarget.velocity.x);
-            ROS_INFO_STREAM("final target velocity y " << ptarget.velocity.y);
-            ROS_INFO_STREAM("final target velocity z " << ptarget.velocity.z);
-            */
+            // ROS_INFO_STREAM("ctrl mode " << cm);
+            // ROS_INFO_STREAM("final target position x, y, z " 
+            //    << ptarget.position.x << ", " << ptarget.position.y
+            //        << ", " << ptarget.position.z);
             _set_raw_pos_pub.publish(ptarget);
             break;
         case CtrlMode::CM_ATT:
+            ROS_INFO_STREAM("final target velocity x, y, z " 
+               << ptarget.velocity.x << ", " << ptarget.velocity.y
+                   << ", " << ptarget.velocity.z);
             _set_raw_att_pub.publish(ptarget);
             break;
         default:

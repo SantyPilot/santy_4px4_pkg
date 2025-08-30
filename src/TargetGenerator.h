@@ -48,9 +48,9 @@ protected:
         const size_t& idx);
 private:
     ros::Subscriber _local_pos_sub;
-    const double radius = 3; // 3m
-    const double height = 3;
-    const size_t total = 10;
+    const double radius = 1.5; // 1m
+    const double height = 1;
+    const size_t total = 20;
     int32_t _idx = -1;
 
     LocalPoseInfo _local_pose;
